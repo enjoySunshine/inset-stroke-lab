@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -18,6 +19,75 @@
 #include "include/core/SkStrokeRec.h"
 
 namespace RNSkia {
+
+/**
+ * True when the current paint strokes and the context aligns strokes to a
+ * side of the outline. Alignment applies to the stroke style only: a fill
+ * has no stroke to align, and a hairline has no width to move.
+ */
+inline bool alignsStroke(DrawingCtx *ctx, const SkPaint &paint) {
+  return ctx->getStrokeAlign() != StrokeAlign::Center &&
+         paint.getStyle() == SkPaint::kStroke_Style &&
+         paint.getStrokeWidth() > 0;
+}
+
+/**
+ * Draws a stroke aligned to one side of a shape's outline. The paint's
+ * stroke width is doubled and the shape's fill region clips the half that
+ * must not show, so the edge on the aligned side lands exactly on the
+ * outline and no corner can grow past it. Dashes and other path effects are
+ * computed on the untransformed shape, so their pitch is the one the
+ * centered stroke would have. Round caps are drawn apart: the clip would
+ * halve them. Square caps are treated as butt caps.
+ */
+inline void drawAlignedStroke(DrawingCtx *ctx, const SkPath &clip,
+                              const std::function<void(const SkPaint &)> &draw,
+                              bool caps) {
+  const auto &paint = ctx->getPaint();
+  auto width = paint.getStrokeWidth();
+  SkPaint stroke(paint);
+  stroke.setStrokeWidth(width * 2);
+  stroke.setStrokeCap(SkPaint::kButt_Cap);
+  ctx->canvas->save();
+  ctx->canvas->clipPath(clip,
+                        ctx->getStrokeAlign() == StrokeAlign::Inside
+                            ? SkClipOp::kIntersect
+                            : SkClipOp::kDifference,
+                        true);
+  draw(stroke);
+  ctx->canvas->restore();
+  if (caps && paint.getStrokeCap() == SkPaint::kRound_Cap) {
+    SkPaint capPaint(paint);
+    capPaint.setStyle(SkPaint::kFill_Style);
+    capPaint.setPathEffect(nullptr);
+    auto radius = width / 2;
+    SkContourMeasureIter iter(clip, false, 1);
+    while (auto contour = iter.next()) {
+      if (!contour->isClosed()) {
+        SkPoint pos;
+        SkVector tan;
+        if (contour->getPosTan(0, &pos, &tan)) {
+          ctx->canvas->drawCircle(pos, radius, capPaint);
+        }
+        if (contour->getPosTan(contour->length(), &pos, &tan)) {
+          ctx->canvas->drawCircle(pos, radius, capPaint);
+        }
+      }
+    }
+  }
+}
+
+/** Draws a path with the current paint, aligned when the context asks. */
+inline void drawPathAligned(DrawingCtx *ctx, const SkPath &path) {
+  if (alignsStroke(ctx, ctx->getPaint())) {
+    drawAlignedStroke(
+        ctx, path,
+        [&](const SkPaint &paint) { ctx->canvas->drawPath(path, paint); },
+        true);
+    return;
+  }
+  ctx->canvas->drawPath(path, ctx->getPaint());
+}
 
 struct CircleCmdProps {
   std::optional<float> cx;
@@ -41,12 +111,20 @@ public:
 
   void play(DrawingCtx *ctx) override {
     const auto &paint = ctx->getPaint();
+    auto cx = props.c.has_value() ? props.c.value().x() : props.cx.value_or(0);
+    auto cy = props.c.has_value() ? props.c.value().y() : props.cy.value_or(0);
+    auto r = props.r;
+    if (alignsStroke(ctx, paint)) {
+      auto clip = SkPathBuilder().addCircle(SkPoint::Make(cx, cy), r).detach();
+      drawAlignedStroke(
+          ctx, clip,
+          [&](const SkPaint &p) { ctx->canvas->drawCircle(cx, cy, r, p); },
+          false);
+      return;
+    }
     if (props.c.has_value()) {
-      ctx->canvas->drawCircle(props.c.value(), props.r, paint);
+      ctx->canvas->drawCircle(props.c.value(), r, paint);
     } else {
-      auto cx = props.cx.value_or(0);
-      auto cy = props.cy.value_or(0);
-      auto r = props.r;
       ctx->canvas->drawCircle(cx, cy, r, paint);
     }
   }
@@ -76,12 +154,17 @@ public:
 
   void play(DrawingCtx *ctx) override {
     const auto &[x, y, width, height, rect] = props;
-    if (rect.has_value()) {
-      ctx->canvas->drawRect(rect.value(), ctx->getPaint());
-    } else {
-      auto rct = SkRect::MakeXYWH(x, y, width.value(), height.value());
-      ctx->canvas->drawRect(rct, ctx->getPaint());
+    auto rct = rect.has_value()
+                   ? rect.value()
+                   : SkRect::MakeXYWH(x, y, width.value(), height.value());
+    if (alignsStroke(ctx, ctx->getPaint())) {
+      auto clip = SkPathBuilder().addRect(rct).detach();
+      drawAlignedStroke(
+          ctx, clip, [&](const SkPaint &p) { ctx->canvas->drawRect(rct, p); },
+          false);
+      return;
     }
+    ctx->canvas->drawRect(rct, ctx->getPaint());
   }
 };
 
@@ -122,7 +205,7 @@ public:
 
     if (!willMutatePath) {
       // Draw the recorded path directly
-      ctx->canvas->drawPath(props.path, ctx->getPaint());
+      drawPathAligned(ctx, props.path);
       return;
     }
 
@@ -191,7 +274,7 @@ public:
     }
 
     // Draw the final path
-    ctx->canvas->drawPath(filteredPath, ctx->getPaint());
+    drawPathAligned(ctx, filteredPath);
   }
 };
 
@@ -591,17 +674,25 @@ public:
 
   void play(DrawingCtx *ctx) override {
     const auto &[rect, x, y, width, height, r] = props;
+    SkRRect rrect;
     if (rect.has_value()) {
-      ctx->canvas->drawRRect(rect.value(), ctx->getPaint());
+      rrect = rect.value();
     } else {
       if (!width.has_value() || !height.has_value() || !r.has_value()) {
         throw std::runtime_error("Invalid properties for rounded rect");
       }
-      auto rct = SkRRect::MakeRectXY(
+      rrect = SkRRect::MakeRectXY(
           SkRect::MakeXYWH(x, y, width.value(), height.value()), r.value().rX,
           r.value().rY);
-      ctx->canvas->drawRRect(rct, ctx->getPaint());
     }
+    if (alignsStroke(ctx, ctx->getPaint())) {
+      auto clip = SkPathBuilder().addRRect(rrect).detach();
+      drawAlignedStroke(
+          ctx, clip, [&](const SkPaint &p) { ctx->canvas->drawRRect(rrect, p); },
+          false);
+      return;
+    }
+    ctx->canvas->drawRRect(rrect, ctx->getPaint());
   }
 };
 
@@ -629,15 +720,20 @@ public:
 
   void play(DrawingCtx *ctx) override {
     const auto &[rect, x, y, width, height] = props;
-    if (rect.has_value()) {
-      ctx->canvas->drawOval(rect.value(), ctx->getPaint());
-    } else {
-      if (!width.has_value() || !height.has_value()) {
-        throw std::runtime_error("Invalid properties received for Oval");
-      }
-      auto rct = SkRect::MakeXYWH(x, y, width.value(), height.value());
-      ctx->canvas->drawOval(rct, ctx->getPaint());
+    if (!rect.has_value() && (!width.has_value() || !height.has_value())) {
+      throw std::runtime_error("Invalid properties received for Oval");
     }
+    auto rct = rect.has_value()
+                   ? rect.value()
+                   : SkRect::MakeXYWH(x, y, width.value(), height.value());
+    if (alignsStroke(ctx, ctx->getPaint())) {
+      auto clip = SkPathBuilder().addOval(rct).detach();
+      drawAlignedStroke(
+          ctx, clip, [&](const SkPaint &p) { ctx->canvas->drawOval(rct, p); },
+          false);
+      return;
+    }
+    ctx->canvas->drawOval(rct, ctx->getPaint());
   }
 };
 

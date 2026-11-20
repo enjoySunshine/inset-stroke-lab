@@ -57,6 +57,8 @@ public:
     return static_cast<double>(getObject()->getStrokeWidth());
   }
 
+  double getStyle() { return static_cast<double>(getObject()->getStyle()); }
+
   double getAlphaf() { return SkScalarToDouble(getObject()->getAlphaf()); }
 
   void setColor(JsiColor color) { getObject()->setColor(color); }
@@ -128,6 +130,7 @@ public:
                   &JsiSkPaint::getStrokeMiter);
     installMethod(runtime, prototype, "getStrokeWidth",
                   &JsiSkPaint::getStrokeWidth);
+    installMethod(runtime, prototype, "getStyle", &JsiSkPaint::getStyle);
     installMethod(runtime, prototype, "setPathEffect",
                   &JsiSkPaint::setPathEffect);
     installMethod(runtime, prototype, "setShader", &JsiSkPaint::setShader);

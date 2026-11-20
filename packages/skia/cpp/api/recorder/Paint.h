@@ -117,6 +117,7 @@ struct PaintCmdProps {
   std::optional<SkPaint::Cap> strokeCap;
   std::optional<float> strokeMiter;
   std::optional<float> strokeWidth;
+  std::optional<StrokeAlign> strokeAlign;
   std::optional<float> opacity;
   std::optional<bool> antiAlias;
   std::optional<bool> dither;
@@ -141,6 +142,8 @@ public:
                     variables);
     convertProperty(runtime, object, "strokeWidth", props.strokeWidth,
                     variables);
+    convertProperty(runtime, object, "strokeAlign", props.strokeAlign,
+                    variables);
     convertProperty(runtime, object, "opacity", props.opacity, variables);
     convertProperty(runtime, object, "antiAlias", props.antiAlias, variables);
     convertProperty(runtime, object, "dither", props.dither, variables);
@@ -163,6 +166,7 @@ public:
       SkPaint freshPaint;
       freshPaint.setAntiAlias(true);
       ctx->getPaint() = freshPaint;
+      ctx->setStrokeAlign(StrokeAlign::Center);
     }
     auto &paint = ctx->getPaint();
     if (props.opacity.has_value()) {
@@ -175,6 +179,9 @@ public:
     if (props.color.has_value()) {
       paint.setShader(nullptr);
       paint.setColor(props.color.value());
+    }
+    if (props.strokeAlign.has_value()) {
+      ctx->setStrokeAlign(props.strokeAlign.value());
     }
     if (props.blendMode.has_value()) {
       applyBlendMode(paint, props.blendMode.value().value);

@@ -119,8 +119,8 @@ const play = (ctx: DrawingContext, _command: Command) => {
     ctx.saveBackdropFilter();
   } else if (isCommand(command, CommandType.SaveLayer)) {
     ctx.materializePaint();
-    const paint = ctx.paintDeclarations.pop();
-    ctx.canvas.saveLayer(paint);
+    const declaration = ctx.paintDeclarations.pop();
+    ctx.canvas.saveLayer(declaration?.paint);
   } else if (isDrawCommand(command, CommandType.SavePaint)) {
     if (command.props.paint) {
       ctx.pushPaint(command.props.paint);
@@ -136,11 +136,13 @@ const play = (ctx: DrawingContext, _command: Command) => {
     composeColorFilters(ctx);
   } else if (isCommand(command, CommandType.RestorePaintDeclaration)) {
     ctx.materializePaint();
+    // The declaration's alignment is read before restorePaint() pops it.
+    const { strokeAlign } = ctx;
     const paint = ctx.restorePaint();
     if (!paint) {
       throw new Error("No paint declaration to push");
     }
-    ctx.paintDeclarations.push(paint);
+    ctx.paintDeclarations.push({ paint, strokeAlign });
   } else if (isCommand(command, CommandType.MaterializePaint)) {
     ctx.materializePaint();
   } else if (isPushColorFilter(command)) {
@@ -172,10 +174,12 @@ const play = (ctx: DrawingContext, _command: Command) => {
     const declarations = ctx.paintDeclarations;
     ctx.paintDeclarations = [];
     draw(ctx, command);
-    declarations.forEach((p) => {
-      ctx.paints.push(p);
+    declarations.forEach((declaration) => {
+      ctx.paints.push(declaration.paint);
+      ctx.strokeAligns.push(declaration.strokeAlign);
       draw(ctx, command);
       ctx.paints.pop();
+      ctx.strokeAligns.pop();
     });
   }
 };

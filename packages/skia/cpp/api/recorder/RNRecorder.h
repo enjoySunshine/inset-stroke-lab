@@ -169,8 +169,9 @@ private:
     ctx->pushPaint(paint);
     cmd->play(ctx);
     ctx->restorePaint();
-    for (auto &layerPaint : declarations) {
-      ctx->pushPaint(layerPaint);
+    for (auto &declaration : declarations) {
+      ctx->pushPaint(declaration.paint);
+      ctx->setStrokeAlign(declaration.strokeAlign);
       cmd->play(ctx);
       ctx->restorePaint();
     }

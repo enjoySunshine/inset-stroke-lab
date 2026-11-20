@@ -99,8 +99,10 @@ public:
       break;
     case CommandType::RestorePaintDeclaration: {
       ctx->materializePaint();
+      // The declaration's alignment is read before restorePaint() pops it.
+      auto strokeAlign = ctx->getStrokeAlign();
       auto paint = ctx->restorePaint();
-      ctx->paintDeclarations.push_back(paint);
+      ctx->paintDeclarations.push_back({std::move(paint), strokeAlign});
       break;
     }
     case CommandType::SaveBackdropFilter:
@@ -113,7 +115,7 @@ public:
       const SkPaint *paint = nullptr;
       SkPaint layerPaint;
       if (!ctx->paintDeclarations.empty()) {
-        layerPaint = ctx->paintDeclarations.back();
+        layerPaint = ctx->paintDeclarations.back().paint;
         ctx->paintDeclarations.pop_back();
         paint = &layerPaint;
       }

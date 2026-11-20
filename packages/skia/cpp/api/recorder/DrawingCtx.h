@@ -19,6 +19,24 @@
 
 namespace RNSkia {
 
+/**
+ * The side of a shape's outline its stroke sits on. SkPaint has no such
+ * property, so the recorder tracks it alongside the paint stack (the JS
+ * player does the same in DrawingContext.ts).
+ */
+enum class StrokeAlign { Center, Inside, Outside };
+
+/**
+ * A paint declared on a node (a <Paint> child), waiting to be drawn with.
+ * The stroke alignment is the one in effect where the declaration was made:
+ * a declaration starts from a fresh paint, so it does not inherit the
+ * enclosing group's alignment.
+ */
+struct PaintDeclaration {
+  SkPaint paint;
+  StrokeAlign strokeAlign;
+};
+
 // Generic composer type using std::function
 template <typename T>
 using Composer = std::function<sk_sp<T>(sk_sp<T>, sk_sp<T>)>;
@@ -70,6 +88,7 @@ public:
     SkPaint paint;
     paint.setAntiAlias(true);
     paints.push_back(paint);
+    strokeAligns.push_back(StrokeAlign::Center);
     opacities.push_back(1.0f);
   }
 
@@ -79,13 +98,20 @@ public:
     opacities.back() = std::clamp(newOpacity, 0.0f, 1.0f);
   }
 
+  /** The stroke alignment in effect on the current paint level. */
+  StrokeAlign getStrokeAlign() const { return strokeAligns.back(); }
+
+  void setStrokeAlign(StrokeAlign align) { strokeAligns.back() = align; }
+
   void pushPaint(SkPaint &paint) {
     paints.push_back(paint);
+    strokeAligns.push_back(strokeAligns.back());
     opacities.push_back(opacities.back());
   }
 
   void savePaint() {
     paints.push_back(SkPaint(getPaint()));
+    strokeAligns.push_back(strokeAligns.back());
     opacities.push_back(opacities.back());
   }
 
@@ -123,6 +149,7 @@ public:
     }
     auto paint = std::move(paints.back());
     paints.pop_back();
+    strokeAligns.pop_back();
     opacities.pop_back();
     return paint;
   }
@@ -219,12 +246,15 @@ public:
 
   SkCanvas *canvas;
   std::vector<SkPaint> paints;
+  // The stroke alignment of each paint on the stack. Same length as paints,
+  // always.
+  std::vector<StrokeAlign> strokeAligns;
   std::vector<sk_sp<SkMaskFilter>> maskFilters;
   std::vector<sk_sp<SkColorFilter>> colorFilters;
   std::vector<sk_sp<SkShader>> shaders;
   std::vector<sk_sp<SkImageFilter>> imageFilters;
   std::vector<sk_sp<SkPathEffect>> pathEffects;
-  std::vector<SkPaint> paintDeclarations;
+  std::vector<PaintDeclaration> paintDeclarations;
 
 private:
   std::vector<float> opacities;

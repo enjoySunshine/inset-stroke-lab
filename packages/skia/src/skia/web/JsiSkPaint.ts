@@ -9,10 +9,10 @@ import type {
   SkPaint,
   SkShader,
   StrokeCap,
-  PaintStyle,
   SkMaskFilter,
   SkPathEffect,
 } from "../types";
+import { PaintStyle } from "../types";
 
 import { HostObject, getEnum } from "./Host";
 import { JsiSkColorFilter } from "./JsiSkColorFilter";
@@ -53,17 +53,24 @@ const getBlenderCache = (ck: CanvasKit): BlenderCache => {
 };
 
 export class JsiSkPaint extends HostObject<Paint, "Paint"> implements SkPaint {
+  // CanvasKit's Paint has no getStyle(): the style is tracked here, on the
+  // wrapper every setStyle goes through.
+  private style: PaintStyle = PaintStyle.Fill;
+
   constructor(CanvasKit: CanvasKit, ref: Paint) {
     super(CanvasKit, ref, "Paint");
   }
 
   copy() {
-    return new JsiSkPaint(this.CanvasKit, this.ref.copy());
+    const result = new JsiSkPaint(this.CanvasKit, this.ref.copy());
+    result.style = this.style;
+    return result;
   }
 
   assign(paint: JsiSkPaint) {
     const previous = this.ref;
     this.ref = paint.ref.copy();
+    this.style = paint.style;
     // The replaced ref is a WASM object the GC will not reclaim.
     previous.delete();
   }
@@ -71,6 +78,7 @@ export class JsiSkPaint extends HostObject<Paint, "Paint"> implements SkPaint {
   reset() {
     const previous = this.ref;
     this.ref = new this.CanvasKit.Paint();
+    this.style = PaintStyle.Fill;
     previous.delete();
   }
 
@@ -96,6 +104,10 @@ export class JsiSkPaint extends HostObject<Paint, "Paint"> implements SkPaint {
 
   getStrokeWidth() {
     return this.ref.getStrokeWidth();
+  }
+
+  getStyle() {
+    return this.style;
   }
 
   setAlphaf(alpha: number) {
@@ -174,6 +186,7 @@ export class JsiSkPaint extends HostObject<Paint, "Paint"> implements SkPaint {
   }
 
   setStyle(style: PaintStyle) {
+    this.style = style;
     this.ref.setStyle({ value: style });
   }
 }

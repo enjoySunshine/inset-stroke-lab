@@ -19,6 +19,7 @@ export const processPaint = ({
   opacity,
   color,
   strokeWidth,
+  strokeAlign,
   blendMode,
   style,
   strokeJoin,
@@ -37,6 +38,9 @@ export const processPaint = ({
   }
   if (strokeWidth !== undefined) {
     paint.strokeWidth = strokeWidth;
+  }
+  if (strokeAlign !== undefined) {
+    paint.strokeAlign = strokeAlign;
   }
   if (blendMode !== undefined) {
     paint.blendMode = blendMode;
@@ -68,6 +72,7 @@ export const processPaint = ({
     opacity !== undefined ||
     color !== undefined ||
     strokeWidth !== undefined ||
+    strokeAlign !== undefined ||
     blendMode !== undefined ||
     style !== undefined ||
     strokeJoin !== undefined ||

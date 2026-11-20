@@ -33,6 +33,7 @@
 #include "api/third_party/CSSColorParser.h"
 
 #include "DataTypes.h"
+#include "DrawingCtx.h"
 
 #include <jsi/jsi.h>
 
@@ -811,6 +812,22 @@ inline SkPaint::Cap getPropertyValue(jsi::Runtime &runtime,
     }
   }
   throw std::runtime_error("Invalid prop value for SkPaint::Cap received");
+}
+
+template <>
+inline StrokeAlign getPropertyValue(jsi::Runtime &runtime,
+                                    const jsi::Value &val) {
+  if (val.isString()) {
+    auto value = val.asString(runtime).utf8(runtime);
+    if (value == "center") {
+      return StrokeAlign::Center;
+    } else if (value == "inside") {
+      return StrokeAlign::Inside;
+    } else if (value == "outside") {
+      return StrokeAlign::Outside;
+    }
+  }
+  throw std::runtime_error("Invalid prop value for StrokeAlign received");
 }
 
 template <>

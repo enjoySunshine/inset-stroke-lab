@@ -30,17 +30,83 @@ import type {
   VerticesProps,
 } from "../../../dom/types";
 import { saturate } from "../../../renderer/processors";
-import type { SkPoint, SkRSXform } from "../../../skia/types";
+import type { SkPaint, SkPath, SkPoint, SkRSXform } from "../../../skia/types";
 import {
   BlendMode,
+  ClipOp,
   FillType,
   FilterMode,
   isCubicSampling,
   MipmapMode,
+  PaintStyle,
   PointMode,
+  StrokeCap,
   VertexMode,
 } from "../../../skia/types";
 import type { DrawingContext } from "../DrawingContext";
+
+/**
+ * True when the current paint strokes and the context aligns strokes to a
+ * side of the outline. Alignment applies to the stroke style only: a fill
+ * has no stroke to align, and a hairline has no width to move.
+ */
+const alignsStroke = (ctx: DrawingContext) => {
+  "worklet";
+  return (
+    ctx.strokeAlign !== "center" &&
+    ctx.paint.getStyle() === PaintStyle.Stroke &&
+    ctx.paint.getStrokeWidth() > 0
+  );
+};
+
+/**
+ * Draws a stroke aligned to one side of a shape's outline. The paint's
+ * stroke width is doubled and the shape's fill region clips the half that
+ * must not show, so the edge on the aligned side lands exactly on the
+ * outline and no corner can grow past it. Dashes and other path effects are
+ * computed on the untransformed shape, so their pitch is the one the
+ * centered stroke would have. Round caps are drawn apart: the clip would
+ * halve them. Square caps are treated as butt caps.
+ */
+const drawAlignedStroke = (
+  ctx: DrawingContext,
+  clip: SkPath,
+  draw: (paint: SkPaint) => void,
+  capPath?: SkPath
+) => {
+  "worklet";
+  const { canvas } = ctx;
+  const { paint } = ctx;
+  const width = paint.getStrokeWidth();
+  const stroke = ctx.track(paint.copy());
+  stroke.setStrokeWidth(width * 2);
+  stroke.setStrokeCap(StrokeCap.Butt);
+  canvas.save();
+  canvas.clipPath(
+    clip,
+    ctx.strokeAlign === "inside" ? ClipOp.Intersect : ClipOp.Difference,
+    true
+  );
+  draw(stroke);
+  canvas.restore();
+  if (capPath !== undefined && paint.getStrokeCap() === StrokeCap.Round) {
+    const capPaint = ctx.track(paint.copy());
+    capPaint.setStyle(PaintStyle.Fill);
+    capPaint.setPathEffect(null);
+    const radius = width / 2;
+    const iter = ctx.Skia.ContourMeasureIter(capPath, false, 1);
+    let contour = ctx.track(iter.next());
+    while (contour !== null) {
+      if (!contour.isClosed()) {
+        const [start] = contour.getPosTan(0);
+        const [end] = contour.getPosTan(contour.length());
+        canvas.drawCircle(start.x, start.y, radius, capPaint);
+        canvas.drawCircle(end.x, end.y, radius, capPaint);
+      }
+      contour = ctx.track(iter.next());
+    }
+  }
+};
 
 export const drawLine = (ctx: DrawingContext, props: LineProps) => {
   "worklet";
@@ -51,6 +117,11 @@ export const drawLine = (ctx: DrawingContext, props: LineProps) => {
 export const drawOval = (ctx: DrawingContext, props: OvalProps) => {
   "worklet";
   const rect = processRect(ctx.Skia, props);
+  if (alignsStroke(ctx)) {
+    const clip = ctx.Skia.Path.Oval(rect);
+    drawAlignedStroke(ctx, clip, (paint) => ctx.canvas.drawOval(rect, paint));
+    return;
+  }
   ctx.canvas.drawOval(rect, ctx.paint);
 };
 
@@ -242,18 +313,41 @@ export const drawPath = (ctx: DrawingContext, props: PathProps) => {
     }
   }
 
+  if (alignsStroke(ctx)) {
+    drawAlignedStroke(
+      ctx,
+      path,
+      (paint) => ctx.canvas.drawPath(path, paint),
+      path
+    );
+    return;
+  }
   ctx.canvas.drawPath(path, ctx.paint);
 };
 
 export const drawRect = (ctx: DrawingContext, props: RectProps) => {
   "worklet";
   const derived = processRect(ctx.Skia, props);
+  if (alignsStroke(ctx)) {
+    const clip = ctx.Skia.Path.Rect(derived);
+    drawAlignedStroke(ctx, clip, (paint) =>
+      ctx.canvas.drawRect(derived, paint)
+    );
+    return;
+  }
   ctx.canvas.drawRect(derived, ctx.paint);
 };
 
 export const drawRRect = (ctx: DrawingContext, props: RoundedRectProps) => {
   "worklet";
   const derived = processRRect(ctx.Skia, props);
+  if (alignsStroke(ctx)) {
+    const clip = ctx.Skia.Path.RRect(derived);
+    drawAlignedStroke(ctx, clip, (paint) =>
+      ctx.canvas.drawRRect(derived, paint)
+    );
+    return;
+  }
   ctx.canvas.drawRRect(derived, ctx.paint);
 };
 
@@ -342,6 +436,13 @@ export const drawCircle = (ctx: DrawingContext, props: CircleProps) => {
   "worklet";
   const { c } = processCircle(props);
   const { r } = props;
+  if (alignsStroke(ctx)) {
+    const clip = ctx.Skia.Path.Circle(c.x, c.y, r);
+    drawAlignedStroke(ctx, clip, (paint) =>
+      ctx.canvas.drawCircle(c.x, c.y, r, paint)
+    );
+    return;
+  }
   ctx.canvas.drawCircle(c.x, c.y, r, ctx.paint);
 };
 

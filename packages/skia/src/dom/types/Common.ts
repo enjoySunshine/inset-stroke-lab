@@ -76,9 +76,18 @@ export interface CTMProps extends TransformProps {
   layer?: SkPaint | boolean;
 }
 
+/**
+ * The side of a shape's outline its stroke sits on. "center" straddles the
+ * outline with half the stroke width on each side (the default). "inside"
+ * and "outside" put the whole stroke width on that side of the outline, so
+ * the edge on the other side lands exactly on the outline.
+ */
+export type StrokeAlign = "center" | "inside" | "outside";
+
 export interface PaintProps extends ChildrenProps {
   color?: Color;
   strokeWidth?: number;
+  strokeAlign?: StrokeAlign;
   blendMode?: SkEnum<typeof BlendMode>;
   style?: SkEnum<typeof PaintStyle>;
   strokeJoin?: SkEnum<typeof StrokeJoin>;

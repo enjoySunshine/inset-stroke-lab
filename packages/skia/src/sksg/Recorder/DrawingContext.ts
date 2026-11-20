@@ -8,8 +8,20 @@ import type {
   SkImageFilter,
   SkPathEffect,
 } from "../../skia/types";
+import type { StrokeAlign } from "../../dom/types";
 
 import { createFrameScope } from "./FrameScope";
+
+/**
+ * A paint declared on a node (a <Paint> child), waiting to be drawn with.
+ * The stroke alignment is the one in effect where the declaration was made:
+ * a declaration starts from a fresh paint, so it does not inherit the
+ * enclosing group's alignment.
+ */
+export interface PaintDeclaration {
+  paint: SkPaint;
+  strokeAlign: StrokeAlign;
+}
 
 /**
  * A level of the paint stack: what a SavePaint command pushes and the
@@ -65,12 +77,15 @@ export const createDrawingContext = (
   const { Skia: frameSkia, track, dispose } = createFrameScope(Skia);
 
   const paints: SkPaint[] = [];
+  // The stroke alignment of each paint on the stack: SkPaint has no such
+  // property, so it is tracked alongside. Same length as paints, always.
+  const strokeAligns: StrokeAlign[] = [];
   const levels: PaintLevel[] = [];
   const colorFilters: SkColorFilter[] = [];
   const shaders: SkShader[] = [];
   const imageFilters: SkImageFilter[] = [];
   const pathEffects: SkPathEffect[] = [];
-  const paintDeclarations: SkPaint[] = [];
+  const paintDeclarations: PaintDeclaration[] = [];
   const opacities: number[] = [];
 
   let nextPaintIndex = 1;
@@ -82,6 +97,7 @@ export const createDrawingContext = (
     resetPaint(paintPool[0]);
   }
   paints.push(paintPool[0]);
+  strokeAligns.push("center");
   levels.push({ owned: true, hasShader: false, alpha: 1, undo: null });
   opacities.push(1);
 
@@ -129,6 +145,9 @@ export const createDrawingContext = (
   const savePaint = (standalone = false) => {
     const parent = currentLevel();
     opacities.push(getOpacity());
+    strokeAligns.push(
+      standalone ? "center" : strokeAligns[strokeAligns.length - 1]
+    );
     if (standalone) {
       const own = takePoolPaint();
       resetPaint(own);
@@ -162,17 +181,23 @@ export const createDrawingContext = (
     }
     paints.push(copy);
     opacities.push(opacity);
+    strokeAligns.push(strokeAligns[strokeAligns.length - 1]);
     levels.push({ owned: true, hasShader: true, alpha, undo: null });
   };
 
   const restorePaint = () => {
     const level = levels.pop();
     opacities.pop();
+    strokeAligns.pop();
     const paint = paints.pop();
     if (level && level.undo) {
       level.undo.paint.setAlphaf(level.undo.alpha);
     }
     return paint;
+  };
+
+  const setStrokeAlign = (align: StrokeAlign) => {
+    strokeAligns[strokeAligns.length - 1] = align;
   };
 
   // Multiplies the current paint's alpha, returning the alpha it had.
@@ -295,6 +320,7 @@ export const createDrawingContext = (
     track,
     dispose,
     paints,
+    strokeAligns,
     colorFilters,
     shaders,
     imageFilters,
@@ -309,6 +335,11 @@ export const createDrawingContext = (
     get paint() {
       return paints[paints.length - 1];
     },
+    /** The stroke alignment in effect on the current paint level. */
+    get strokeAlign() {
+      return strokeAligns[strokeAligns.length - 1];
+    },
+    setStrokeAlign,
     writablePaint,
     restorePaint,
     materializePaint,

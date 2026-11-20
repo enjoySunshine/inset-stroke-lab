@@ -74,6 +74,11 @@ export interface SkPaint extends SkJSIInstance<"Paint"> {
   getStrokeWidth(): number;
 
   /**
+   * Returns whether the geometry is filled or stroked.
+   */
+  getStyle(): PaintStyle;
+
+  /**
    * Replaces alpha, leaving RGBA unchanged. 0 means fully transparent, 1.0 means opaque.
    * @param alpha
    */

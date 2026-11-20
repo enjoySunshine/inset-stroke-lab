@@ -17,6 +17,7 @@ export const setPaintProperties = (
     color,
     blendMode,
     strokeWidth,
+    strokeAlign,
     style,
     strokeJoin,
     strokeCap,
@@ -32,6 +33,9 @@ export const setPaintProperties = (
   }
   if (color !== undefined) {
     ctx.setColor(processColor(Skia, color), standalone);
+  }
+  if (strokeAlign !== undefined) {
+    ctx.setStrokeAlign(strokeAlign);
   }
   if (
     blendMode === undefined &&
